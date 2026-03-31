@@ -1,0 +1,26 @@
+{
+    "id": "0624F6CB",
+    "path": "~/disaster_impacts/analysis/0_plot_settings.R",
+    "project_path": "analysis/0_plot_settings.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1770595222602.0,
+    "source_on_save": false,
+    "relative_order": 8,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "11,0",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1774814531,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1774814531135,
+    "read_only": false,
+    "read_only_alternatives": []
+}

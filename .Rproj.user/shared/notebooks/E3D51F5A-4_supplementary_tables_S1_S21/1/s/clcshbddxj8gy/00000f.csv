@@ -1,0 +1,18 @@
+"0","print(count_deviation, include.rownames=TRUE)
+"
+"1","% latex table generated in R 4.5.2 by xtable 1.8-4 package
+% Sun Mar 29 23:28:44 2026
+\begin{table}[ht]
+\centering
+\begin{tabular}{rrrr}
+  \hline
+ & better-off & nat-average & worse-off \\ 
+  \hline
+Low sHDI & 338 & 875 & 627 \\ 
+  Medium sHDI & 540 & 1162 & 547 \\ 
+  High sHDI & 333 & 888 & 148 \\ 
+  Very high sHDI & 202 & 1309 &  92 \\ 
+   \hline
+\end{tabular}
+\end{table}
+"

@@ -1,0 +1,987 @@
+---
+title: "supplementary_materials"
+author: "khalil teber"
+date: "2024-2025"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(xtable)
+library(quantreg)#quantile regression
+source("0_list_functions.R")#helper functions
+```
+
+### Read data
+
+```{r}
+#disaster data
+disasters_df <- read_csv("/net/home/kteber/disaster_impact_shdi/data/data_clean/disaster_data.csv")
+#disasters_df <- read_csv("/net/projects/xaida/project_data/xaida_data_base/V3.2/analysis_data/disaster_data.csv")
+
+#disaster data & geolocations
+# disasters_geo <- st_read("/net/projects/xaida/project_data/xaida_data_base/V3.2/analysis_data/disaster_geo.gpkg")
+# #shdi_data <- disasters_df %>% select(c(disaster_number_country,sHDI_category))
+# #disasters_geo <- left_join(disasters_geo,shdi_data, by = "disaster_number_country") %>% drop_na(sHDI_category)
+# coastlines <- ne_coastline(scale = "medium", returnclass = "sf")
+# shp_countries <- ne_countries(scale = "medium", returnclass = "sf")
+# 
+# 
+# #climate anomalies data
+# #disaster type climate fingerprints
+# disaster_clim_df <- read.csv("/net/projects/xaida/project_data/xaida_data_base/V3.2/analysis_data/disaster_types_sd_climatology.csv")
+# 
+# #disaster type sHDI climate fingerprints
+# disaster_clim_shdi_df <- read_csv("/net/projects/xaida/project_data/xaida_data_base/V3.2/analysis_data/disaster_types_hdi_sd_climatology.csv")
+
+```
+### I - Supplementary Tables
+
+#### Methods
+```{r missing data table}
+
+impacts_df <- disasters_df %>% 
+  select(total_affected, total_deaths, total_damages)
+
+# Calculate the number of available data points (non-missing values) in each column
+available_data <- colSums(!is.na(impacts_df))
+
+# Calculate the percentage of missing data in each column
+missing_percentage <- colMeans(is.na(impacts_df)) * 100
+
+# Combine the counts and percentages into a single data frame
+result <- rbind(available_data, missing_percentage)
+result[1, ] <- as.integer(result[1, ])
+
+# Add row names for clarity
+rownames(result) <- c("Available Data", "Missing Data (%)")
+result %>% xtable()
+
+```
+
+
+
+#### event counts
+
+##### Tables S1, S2, S3
+```{r event counts}
+
+#1 count and percentage of event types
+count_percent_disaster <- disasters_df %>% 
+    mutate(disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave",
+                                                          "Heat wave", "Wildfire", "Drought"))) %>% 
+  group_by(disaster_type) %>% 
+  tally() %>% 
+  mutate(total = sum(n)) %>% 
+  mutate(percentage = round((n / total) * 100,2)) %>% 
+  select(-total) %>% xtable()
+
+print(count_percent_disaster, include.rownames=FALSE)
+
+#2 count of event types per sHDI group
+count_percent_sHDI <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave",
+                                                          "Heat wave", "Wildfire", "Drought"))) %>% 
+  group_by(disaster_type, sHDI_category) %>% 
+  tally() %>% 
+  pivot_wider(names_from = sHDI_category,
+    values_from = n) %>% 
+  xtable()
+
+print(count_percent_sHDI, include.rownames=FALSE)
+
+# count of sHDI/HDI mismatches
+disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI"))) %>% 
+  select(c(sHDI_category, natHDI_category)) %>% 
+  mutate(sHDI = str_sub(sHDI_category, end = -6),
+         HDI = str_sub(natHDI_category, end = -5)) %>% 
+  mutate(mismatch = sHDI != HDI) %>% 
+  group_by(sHDI_category) %>% 
+  summarise(count_mismatch = sum(mismatch)) %>% 
+  xtable()
+
+#(225 + 422 + 286 + 48) / 7061
+#13.9 of mismatches
+
+#3 count of deviation from national HDI per sHDI group
+count_deviation <- table(disasters_df$sHDI_category, disasters_df$deviation_category) %>% 
+  xtable()
+print(count_deviation, include.rownames=TRUE)
+
+```
+##### Tables S4, S5
+```{r total exposure and impacts per sHDIgroup and disaster type}
+exposure_impacts_sHDI <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category,levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave", "Heat wave", "Wildfire", "Drought"))) %>% 
+  select(c(disaster_type,sHDI_category,year,total_population, total_affected, total_deaths, total_gdp, total_damages)) %>%
+  rename(`Total population`=total_population, `Total affected`=total_affected, `Total mortality`=total_deaths, `Total GDP`=total_gdp, `Total damages`=total_damages) %>% 
+  pivot_longer(`Total population`:`Total damages`) %>% 
+  mutate(name = factor(name,levels=c("Total population","Total affected","Total mortality","Total GDP","Total damages"))) %>% 
+  group_by(sHDI_category,name) %>% 
+  summarise(sum_var = sum(value, na.rm = T)) %>% 
+  ungroup() %>% 
+  group_by(name) %>% 
+  mutate(prop = round(sum_var/sum(sum_var)*100,2)) %>% 
+  arrange(name) %>% 
+  xtable(display = c("f","f",rep("e",2),"s"))
+print(exposure_impacts_sHDI, include.rownames=FALSE)
+
+exposure_impacts_distype <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category,levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave", "Heat wave", "Wildfire", "Drought"))) %>% 
+  select(c(disaster_type,sHDI_category,year,total_population, total_affected, total_deaths, total_gdp, total_damages)) %>%
+  rename(`Total population`=total_population, `Total affected`=total_affected, `Total mortality`=total_deaths, `Total GDP`=total_gdp, `Total damages`=total_damages) %>% 
+  pivot_longer(`Total population`:`Total damages`) %>% 
+  mutate(name = factor(name,levels=c("Total population","Total affected","Total mortality","Total GDP","Total damages"))) %>% 
+  group_by(disaster_type,name) %>% 
+  summarise(sum_var = sum(value, na.rm = T)) %>% 
+  ungroup() %>% 
+  group_by(name) %>% 
+  mutate(prop = round(sum_var/sum(sum_var)*100,2)) %>% 
+  select(c(name, disaster_type, sum_var, prop)) %>% 
+  arrange(name) %>% 
+  xtable(display = c("f","f",rep("e",2),"s"))
+print(exposure_impacts_distype, include.rownames=FALSE)
+
+```
+#### Exposure and impacts trends
+##### Table S6
+```{r exposure and impacts change}
+
+#popexposure
+number_popexposure_sHDI_group <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Popexposure") %>% 
+  select(c(year, impact, sHDI_category, total_population)) %>% drop_na()
+
+number_popexposure_all <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Popexposure") %>% 
+  select(c(year, impact, sHDI_category, total_population)) %>% drop_na() %>% 
+  mutate(sHDI_category = "all")
+
+number_popexposure_data_all <- rbind(number_popexposure_all,number_popexposure_sHDI_group)
+
+number_popexposure_data_all <- number_popexposure_data_all %>% group_by(year, sHDI_category) %>% 
+  summarise(total_population = sum(total_population)) %>% 
+  mutate(total_population = round(total_population / 1e9, 3))
+
+#affected
+number_affected_sHDI_group <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Affected") %>% 
+  select(c(year, impact, sHDI_category, total_affected)) %>% drop_na()
+
+number_affected_all <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Affected") %>% 
+  select(c(year, impact, sHDI_category, total_affected)) %>% drop_na() %>% 
+  mutate(sHDI_category = "all")
+
+number_affected_data_all <- rbind(number_affected_all,number_affected_sHDI_group)
+
+number_affected_data_all <- number_affected_data_all %>% group_by(year, sHDI_category) %>% 
+  summarise(total_affected = sum(total_affected)) %>% 
+  mutate(total_affected = round(total_affected / 1e6, 3))
+
+#fatalities
+number_fatalities_sHDI_group <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, total_deaths)) %>% drop_na()
+
+number_fatalities_all <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, total_deaths)) %>% drop_na() %>% 
+  mutate(sHDI_category = "all")
+
+number_fatalities_data_all <- rbind(number_fatalities_all, number_fatalities_sHDI_group)
+
+number_fatalities_data_all <- number_fatalities_data_all %>% group_by(year, sHDI_category) %>% 
+  summarise(total_deaths = sum(total_deaths)) %>% 
+  mutate(total_deaths = round(total_deaths / 1e3, 3))
+
+#GDPexposure
+number_gdpexposure_sHDI_group <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Economic exposure") %>% 
+  select(c(year, impact, sHDI_category, total_gdp)) %>% drop_na()
+
+number_gdpexposure_all <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Economic exposure") %>% 
+  select(c(year, impact, sHDI_category, total_gdp)) %>% drop_na() %>%
+  mutate(sHDI_category = "all")
+
+number_gdpexposure_data_all <- rbind(number_gdpexposure_all,number_gdpexposure_sHDI_group)
+
+number_gdpexposure_data_all <- number_gdpexposure_data_all %>% group_by(year, sHDI_category) %>% 
+  summarise(total_gdp = sum(total_gdp)) %>% 
+  mutate(total_gdp = round(total_gdp / 1e12, 3))
+
+#damages
+number_damages_sHDI_group <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Economic Damages") %>% 
+  select(c(year, impact, sHDI_category, total_damages)) %>% drop_na()
+
+number_damages_all <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Economic Damages") %>% 
+  select(c(year, impact, sHDI_category, total_damages)) %>% drop_na() %>% 
+  mutate(sHDI_category = "all")
+
+number_damages_data_all <- rbind(number_damages_all,number_damages_sHDI_group)
+
+number_damages_data_all <- number_damages_data_all %>% group_by(year, sHDI_category) %>% 
+  summarise(total_damages = sum(total_damages)) %>% 
+  mutate(total_damages = round(total_damages / 1e9, 3))
+
+#extract coefficients for 1990 and 2020
+impact_coeffs <- data.frame()
+
+#popexposure
+for (group in unique(number_popexposure_data_all$sHDI_category)) {
+  model <- rq(total_population ~ year, tau=0.5,data = number_popexposure_data_all%>% filter(sHDI_category == group))
+  
+  model_summ <- summary(model,se = "nid")
+
+  model_df <- data.frame(val_1990 = number_popexposure_data_all%>% filter(sHDI_category == group & year == 1990) %>% pull(total_population),
+            val_2020 = number_popexposure_data_all%>% filter(sHDI_category == group & year == 2020) %>% pull(total_population),
+            sHDI_group = group,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "popexposure")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+
+
+#affected
+for (group in unique(number_affected_data_all$sHDI_category)) {
+  model <- rq(total_affected ~ year, tau=0.5,data = number_affected_data_all%>% filter(sHDI_category == group))
+  
+  model_summ <- summary(model,se = "nid")
+
+  model_df <- data.frame(val_1990 = number_affected_data_all %>% filter(sHDI_category == group & year == 1990) %>% pull(total_affected),
+            val_2020 = number_affected_data_all%>% filter(sHDI_category == group & year == 2020) %>% pull(total_affected),
+            sHDI_group = group,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "affected")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+
+#fatalities
+for (group in unique(number_fatalities_data_all$sHDI_category)) {
+  model <- rq(total_deaths ~ year, data = number_fatalities_data_all%>% filter(sHDI_category == group))
+  
+  model_summ <- summary(model,se = "nid")
+
+  model_df <- data.frame(val_1990 = number_fatalities_data_all %>% filter(sHDI_category == group & year == 1990) %>% pull(total_deaths),
+            val_2020 = number_fatalities_data_all %>% filter(sHDI_category == group & year == 2020) %>% pull(total_deaths),
+            sHDI_group = group,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "fatalities")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+
+
+#GDP exposure
+for (group in unique(number_gdpexposure_data_all$sHDI_category)) {
+  model <- rq(total_gdp ~ year, data = number_gdpexposure_data_all%>% filter(sHDI_category == group))
+  
+  model_summ <- summary(model,se = "nid")
+
+  model_df <- data.frame(val_1990 = number_gdpexposure_data_all %>% filter(sHDI_category == group & year == 1990) %>% pull(total_gdp),
+            val_2020 = number_gdpexposure_data_all %>% filter(sHDI_category == group & year == 2020) %>% pull(total_gdp),
+            sHDI_group = group,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "GDPexposure")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+
+
+#damages
+for (group in unique(number_damages_data_all$sHDI_category)) {
+  model <- rq(total_damages ~ year, data = number_damages_data_all%>% filter(sHDI_category == group))
+  
+  model_summ <- summary(model,se = "nid")
+
+  model_df <- data.frame(val_1990 = number_damages_data_all %>% filter(sHDI_category == group & year == 1990) %>% pull(total_damages),
+            val_2020 = number_damages_data_all %>% filter(sHDI_category == group & year == 2020) %>% pull(total_damages),
+            sHDI_group = group,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "damages")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+
+
+
+rownames(impact_coeffs) <- NULL
+
+impact_coeffs %>% 
+  select(impact, sHDI_group, val_1990, val_2020, slope, pvalue, npoints) %>% 
+  xtable(display = c("f","f","f","f","f",rep("e",2),"d"))
+
+```
+#### Impact rates trends
+##### Table S7
+```{r rates trends and percent change}
+
+#affected
+fractions_affected_sHDI_group <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Affected") %>% 
+  select(c(year, impact, sHDI_category, normalized_affected)) %>% drop_na() %>% 
+  mutate(normalized_affected = normalized_affected * 1e4)
+
+fractions_affected_all <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Affected") %>% 
+  select(c(year, impact, sHDI_category, normalized_affected)) %>% drop_na() %>% 
+  mutate(normalized_affected = normalized_affected * 1e4) %>% 
+  mutate(sHDI_category = "all")
+
+fractions_affected_data_all <- rbind(fractions_affected_all,fractions_affected_sHDI_group)
+
+#fatalities
+fractions_fatalities_sHDI_group <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, normalized_deaths)) %>% drop_na() %>% 
+  mutate(normalized_deaths = normalized_deaths * 1e4)
+
+fractions_fatalities_all <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, normalized_deaths)) %>% drop_na() %>% 
+  mutate(normalized_deaths = normalized_deaths * 1e4) %>% 
+  mutate(sHDI_category = "all")
+
+fractions_fatalities_data_all <- rbind(fractions_fatalities_all,fractions_fatalities_sHDI_group)
+
+#damages
+fractions_damages_sHDI_group <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Economic Damages") %>% 
+  select(c(year, impact, sHDI_category, normalized_total_damages)) %>% drop_na() %>% 
+  mutate(normalized_total_damages = normalized_total_damages * 1e2)
+
+fractions_damages_all <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         impact="Economic Damages") %>% 
+  select(c(year, impact, sHDI_category, normalized_total_damages)) %>% drop_na() %>% 
+  mutate(normalized_total_damages = normalized_total_damages * 1e2) %>% 
+  mutate(sHDI_category = "all")
+
+fractions_damages_data_all <- rbind(fractions_damages_all,fractions_damages_sHDI_group)
+
+
+#extract coefficients for 1990 and 2020
+impact_coeffs <- data.frame()
+
+#affected
+for (group in unique(fractions_affected_data_all$sHDI_category)) {
+  model <- rq(normalized_affected ~ year, data = fractions_affected_data_all%>% filter(sHDI_category == group))
+  
+  model_summ <- summary(model,se = "nid")
+
+  model_df <- data.frame(val_1990 = model$coefficients[1] + model$coefficients[2] * 1990,
+            val_2020 = model$coefficients[1] + model$coefficients[2] * 2020,
+            sHDI_group = group,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "affected")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+
+#fatalities
+for (group in unique(fractions_fatalities_data_all$sHDI_category)) {
+  model <- rq(normalized_deaths ~ year, data = fractions_fatalities_data_all%>% filter(sHDI_category == group))
+  
+  model_summ <- summary(model,se = "nid")
+
+  model_df <- data.frame(val_1990 = model$coefficients[1] + model$coefficients[2] * 1990,
+            val_2020 = model$coefficients[1] + model$coefficients[2] * 2020,
+            sHDI_group = group,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "fatalities")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+
+
+#damages
+for (group in unique(fractions_damages_data_all$sHDI_category)) {
+  model <- rq(normalized_total_damages ~ year, data = fractions_damages_data_all%>% filter(sHDI_category == group))
+  
+  model_summ <- summary(model,se = "nid")
+
+  model_df <- data.frame(val_1990 = model$coefficients[1] + model$coefficients[2] * 1990,
+            val_2020 = model$coefficients[1] + model$coefficients[2] * 2020,
+            sHDI_group = group,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "damages")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+
+
+
+rownames(impact_coeffs) <- NULL
+
+
+#calculate percent change
+
+impact_coeffs %>% 
+  mutate(change = round((val_2020/val_1990 - 1) * 100,2)) %>% 
+  relocate(change, .after = val_2020) %>% 
+  relocate(impact,sHDI_group) %>% 
+  #filter(impact == "affected") %>% xtable(display = c("f","f","f","f","f",rep("e",3),"d"))
+  xtable(display = c("f","f","f","f","f","f",rep("e",2),"d"))
+
+impact_coeffs %>% 
+  group_by(impact,sHDI_group) %>% 
+  mutate(avg_frac = mean(c(val_1990,val_2020))) %>% 
+  select(-c(val_1990,val_2020)) %>% 
+  group_by(impact) %>% 
+  spread(sHDI_group,avg_frac) %>% 
+  mutate(ratio_all = all / `Very high sHDI`,
+         ratio_low = `Low sHDI` / `Very high sHDI`,
+         ratio_medium = `Medium sHDI`  / `Very high sHDI`,
+         ratio_high = `High sHDI` / `Very high sHDI`) %>% 
+  select(-c(all,`High sHDI`,`Low sHDI`,`Medium sHDI`,`Very high sHDI`))
+  
+
+impact_coeffs
+
+```
+
+#### Exposure and impacts trends - disaster type
+##### Table S8, S9, S10, S11, S12
+```{r exposureImpact trends}
+
+#popexposure
+number_popexposure_sHDI_group_disaster <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Popexposure") %>% 
+  select(c(year, impact, sHDI_category, disaster_type,total_population)) %>% drop_na()
+
+number_popexposure_all_disaster <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Popexposure") %>% 
+  select(c(year, impact, sHDI_category, disaster_type,total_population)) %>% drop_na() %>% 
+  mutate(sHDI_category = "all")
+
+number_popexposure_data_all_disaster <- rbind(number_popexposure_all_disaster,number_popexposure_sHDI_group_disaster)
+
+number_popexposure_data_all_disaster <- number_popexposure_data_all_disaster %>% group_by(year, sHDI_category, disaster_type) %>% 
+  summarise(total_population = sum(total_population ,na.rm = TRUE)) %>% 
+  mutate(total_population = round(total_population / 1e6, 3)) 
+
+#affected
+number_affected_sHDI_group_disaster  <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Affected") %>% 
+  select(c(year, impact, sHDI_category, disaster_type,total_affected)) %>% drop_na()
+
+number_affected_all_disaster  <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Affected") %>% 
+  select(c(year, impact, sHDI_category, disaster_type,total_affected)) %>% drop_na() %>% 
+  mutate(sHDI_category = "all")
+
+number_affected_data_all_disaster  <- rbind(number_affected_all_disaster ,number_affected_sHDI_group_disaster )
+
+number_affected_data_all_disaster  <- number_affected_data_all_disaster  %>% 
+  group_by(year, sHDI_category,disaster_type) %>% 
+  summarise(total_affected = sum(total_affected,na.rm = TRUE)) %>% 
+  mutate(total_affected = round(total_affected / 1e6, 3)) %>% 
+  ungroup() %>% 
+  group_by(sHDI_category,disaster_type) %>% 
+  filter(n() >= 10)
+
+#fatalities
+number_fatalities_sHDI_group_disaster <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, disaster_type, total_deaths)) %>% drop_na()
+
+number_fatalities_all_disaster <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category,disaster_type, total_deaths)) %>% drop_na() %>% 
+  mutate(sHDI_category = "all")
+
+number_fatalities_data_all_disaster <- rbind(number_fatalities_all_disaster, number_fatalities_sHDI_group_disaster)
+
+number_fatalities_data_all_disaster <- number_fatalities_data_all_disaster %>% 
+  group_by(year, sHDI_category,disaster_type) %>% 
+  summarise(total_deaths = sum(total_deaths,na.rm = TRUE)) %>% 
+  mutate(total_deaths = round(total_deaths / 1e3, 3)) 
+
+#GDPexposure
+number_gdpexposure_sHDI_group_disaster <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Economic exposure") %>% 
+  select(c(year, impact, sHDI_category,disaster_type, total_gdp)) %>% drop_na()
+
+number_gdpexposure_all_disaster <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Economic exposure") %>% 
+  select(c(year, impact, sHDI_category,disaster_type, total_gdp)) %>% drop_na() %>%
+  mutate(sHDI_category = "all")
+
+number_gdpexposure_data_all_disaster <- rbind(number_gdpexposure_all_disaster,number_gdpexposure_sHDI_group_disaster)
+
+number_gdpexposure_data_all_disaster <- number_gdpexposure_data_all_disaster %>% 
+  group_by(year, sHDI_category,disaster_type) %>% 
+  summarise(total_gdp = sum(total_gdp,na.rm = TRUE)) %>% 
+  mutate(total_gdp = round(total_gdp / 1e12, 3)) 
+
+#damages
+number_damages_sHDI_group_disaster <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Economic Damages") %>% 
+  select(c(year, impact, sHDI_category, disaster_type, total_damages)) %>% drop_na()
+
+number_damages_all_disaster <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Economic Damages") %>% 
+  select(c(year, impact, sHDI_category, disaster_type, total_damages)) %>% drop_na() %>% 
+  mutate(sHDI_category = "all")
+
+number_damages_data_all_disaster <- rbind(number_damages_all_disaster,number_damages_sHDI_group_disaster)
+
+number_damages_data_all_disaster <- number_damages_data_all_disaster %>% 
+  group_by(year, sHDI_category,disaster_type) %>% 
+  summarise(total_damages = sum(total_damages,na.rm=TRUE)) %>% 
+  mutate(total_damages = round(total_damages / 1e9, 3)) %>% 
+  ungroup() %>% 
+  group_by(sHDI_category,disaster_type) %>% 
+  filter(n() >= 10)
+
+#extract coefficients for 1990 and 2020
+impact_coeffs <- data.frame()
+
+#popexposure
+for (group in unique(number_popexposure_data_all_disaster$sHDI_category)) {
+  for (distype in unique(number_popexposure_data_all_disaster$disaster_type)) {
+  
+  try(
+  model <- rq(total_population ~ year, tau=0.5, data = number_popexposure_data_all_disaster%>% filter(sHDI_category == group &
+                                                                                            disaster_type == distype)))
+  
+  model_summ <- summary(model,se = "nid")
+  
+  value_90 <- result <- number_popexposure_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                        disaster_type == distype, 
+                                                                        year == 1990) %>%  pull(total_population)
+  value_20 <- result <- number_popexposure_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                      disaster_type == distype, 
+                                                                      year == 2020) %>%  pull(total_population)
+  model_df <- data.frame(val_1990 = ifelse(length(value_90) == 0, NaN, value_90),
+                         val_2020 = ifelse(length(value_20) == 0, NaN, value_20),
+            sHDI_group = group,
+            disaster_type = distype,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "popexposure")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+}
+
+#affected
+for (group in unique(number_affected_data_all_disaster$sHDI_category)) {
+  for (distype in unique(number_affected_data_all_disaster$disaster_type)) {
+  
+  try(
+  model <- rq(total_affected ~ year, tau=0.5,data = number_affected_data_all_disaster%>% filter(sHDI_category == group &
+                                                                                         disaster_type == distype)))
+  
+  model_summ <- summary(model,se = "nid")
+  
+  value_90 <- result <- number_affected_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                        disaster_type == distype, 
+                                                                        year == 1990) %>%  pull(total_affected)
+  value_20 <- result <- number_affected_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                      disaster_type == distype, 
+                                                                      year == 2020) %>%  pull(total_affected)
+
+  model_df <- data.frame(val_1990 = ifelse(length(value_90) == 0, NaN, value_90),
+            val_2020 = ifelse(length(value_20) == 0, NaN, value_20),
+            sHDI_group = group,
+            disaster_type = distype,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "affected")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+}
+
+#fatalities
+for (group in unique(number_fatalities_data_all_disaster$sHDI_category)) {
+  for (distype in unique(number_fatalities_data_all_disaster$disaster_type)) {
+    
+  try(
+  model <- rq(total_deaths ~ year, data = number_fatalities_data_all_disaster%>% filter(sHDI_category == group &
+                                                                                         disaster_type == distype)))
+  
+  model_summ <- summary(model,se = "nid")
+  
+  value_90 <- result <- number_fatalities_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                        disaster_type == distype, 
+                                                                        year == 1990) %>%  pull(total_deaths)
+  value_20 <- result <- number_fatalities_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                      disaster_type == distype, 
+                                                                      year == 2020) %>%  pull(total_deaths)
+
+  model_df <- data.frame(val_1990 = ifelse(length(value_90) == 0, NaN, value_90),
+            val_2020 = ifelse(length(value_20) == 0, NaN, value_20),
+            sHDI_group = group,
+            disaster_type = distype,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "fatalities")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+}
+
+#GDP exposure
+for (group in unique(number_gdpexposure_data_all_disaster$sHDI_category)) {
+  for (distype in unique(number_gdpexposure_data_all_disaster$disaster_type)) {
+  
+  try(
+  model <- rq(total_gdp ~ year, data = number_gdpexposure_data_all_disaster%>% filter(sHDI_category == group &
+                                                                                         disaster_type == distype)))
+  
+  model_summ <- summary(model,se = "nid")
+  
+  value_90 <- result <- number_gdpexposure_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                      disaster_type == distype, 
+                                                                      year == 1990) %>%  pull(total_gdp)
+  value_20 <- result <- number_gdpexposure_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                      disaster_type == distype, 
+                                                                      year == 2020) %>%  pull(total_gdp)
+
+  model_df <- data.frame(val_1990 = ifelse(length(value_90) == 0, NaN, value_90),
+            val_2020 = ifelse(length(value_20) == 0, NaN, value_20),
+            sHDI_group = group,
+            disaster_type = distype,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "GDPexposure")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+}
+
+#damages
+for (group in unique(number_damages_data_all_disaster$sHDI_category)) {
+  for (distype in unique(number_damages_data_all_disaster$disaster_type)) {
+  
+  try(
+  model <- rq(total_damages ~ year, data = number_damages_data_all_disaster%>% filter(sHDI_category == group &
+                                                                                         disaster_type == distype)))
+  
+  model_summ <- summary(model,se = "nid")
+  
+  value_90 <- result <- number_damages_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                    disaster_type == distype, 
+                                                                    year == 1990) %>%  pull(total_damages)
+  value_20 <- result <- number_damages_data_all_disaster %>% filter(sHDI_category == group, 
+                                                                      disaster_type == distype, 
+                                                                      year == 2020) %>%  pull(total_damages)
+
+
+  model_df <- data.frame(val_1990 = ifelse(length(value_90) == 0, NaN, value_90),
+            val_2020 = ifelse(length(value_20) == 0, NaN, value_20),
+            sHDI_group = group,
+            disaster_type = distype,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "damages")
+  impact_coeffs = rbind(impact_coeffs, model_df)
+}
+}
+
+
+rownames(impact_coeffs) <- NULL
+
+#"popexposure" "affected"    "fatalities"  "GDPexposure" "damages" 
+
+xtable_output <- impact_coeffs %>% 
+  mutate(sHDI_group = factor(sHDI_group, levels=c("all","Low sHDI","Medium sHDI","High sHDI","Very high sHDI"))) %>% 
+  mutate(disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought"))) %>% 
+  select(impact, sHDI_group, disaster_type,val_1990, val_2020, slope, pvalue, npoints) %>% 
+  filter(impact == "damages") %>%
+  arrange(sHDI_group) %>% 
+  xtable(display = c("f","f","f","f","f","f","f",rep("e",1),"d"))
+
+
+print(xtable_output, include.rownames=FALSE)
+
+```
+
+
+#### Impacts fraction trends - disaster type
+##### Tables S13, S14, S15
+```{r}
+
+###Affected
+
+affected_disasters_sHDI_data <- disasters_df %>% 
+  filter(disaster_number_country != "2014-9429-MYS") %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")), impact="Affected") %>% 
+  select(c(year, impact, sHDI_category, normalized_affected,disaster_type,disaster_number_country)) %>% drop_na() %>% 
+  group_by(sHDI_category,disaster_type) %>% 
+  filter(n() >= 10) %>% 
+  mutate(normalized_affected = normalized_affected * 1e4)
+
+affected_disasters_all_data <- disasters_df %>% 
+  filter(disaster_number_country != "2014-9429-MYS") %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")), impact="Affected") %>% 
+  select(c(year, impact, sHDI_category, normalized_affected,disaster_type,disaster_number_country)) %>% drop_na() %>% 
+  group_by(disaster_type) %>% 
+  filter(n() >= 10) %>% 
+  mutate(normalized_affected = normalized_affected * 1e4) %>% 
+  mutate(sHDI_category = "all")
+
+affected_disasters_data <- rbind(affected_disasters_all_data, affected_disasters_sHDI_data)
+
+
+###Fatalities
+
+
+fatalities_disasters_sHDI_data <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, normalized_deaths,disaster_type,disaster_number_country)) %>% drop_na() %>% 
+  group_by(sHDI_category,disaster_type) %>% 
+  filter(n() >= 10) %>% 
+  mutate(normalized_deaths = normalized_deaths * 1e4)
+
+fatalities_disasters_all_data <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, normalized_deaths,disaster_type,disaster_number_country)) %>% drop_na() %>% 
+  group_by(disaster_type) %>% 
+  filter(n() >= 10) %>% 
+  mutate(normalized_deaths = normalized_deaths * 1e4) %>% 
+  mutate(sHDI_category = "all")
+
+fatalities_disasters_data <- rbind(fatalities_disasters_all_data, fatalities_disasters_sHDI_data)
+
+
+###Damages
+
+damages_disasters_sHDI_data <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, normalized_total_damages,disaster_type,disaster_number_country)) %>% drop_na() %>% 
+  group_by(sHDI_category,disaster_type) %>% 
+  filter(n() >= 10) %>% 
+  mutate(normalized_total_damages = normalized_total_damages * 1e2)
+
+damages_disasters_all_data <- disasters_df %>% 
+  mutate(sHDI_category = factor(sHDI_category, levels=c("Low sHDI","Medium sHDI","High sHDI","Very high sHDI")),
+         disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought")),
+         impact="Fatalities") %>% 
+  select(c(year, impact, sHDI_category, normalized_total_damages,disaster_type,disaster_number_country)) %>% drop_na() %>% 
+  group_by(sHDI_category,disaster_type) %>% 
+  filter(n() >= 10) %>% 
+  mutate(normalized_total_damages = normalized_total_damages * 1e2) %>% 
+  mutate(sHDI_category = "all")
+
+damages_disasters_data <- rbind(damages_disasters_all_data, damages_disasters_sHDI_data)
+
+
+#extract coefficients for 1990 and 2020
+impact_coeffs_disaster <- data.frame()
+
+#affected
+for (group in unique(affected_disasters_data$sHDI_category)) {
+  for (distype in unique(affected_disasters_data$disaster_type)) {
+  
+  try(
+    
+  model <- rq(normalized_affected ~ year, data = affected_disasters_data%>% filter(sHDI_category == group
+                                                                                  & disaster_type == distype)))
+  model_summ <- summary(model,se = "boot")  
+  
+  model_df <- data.frame(val_1990 = model$coefficients[1] + model$coefficients[2] * 1990,
+            val_2020 = model$coefficients[1] + model$coefficients[2] * 2020,
+            sHDI_group = group,
+            disaster_type = distype,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "affected")
+  impact_coeffs_disaster = rbind(impact_coeffs_disaster, model_df)
+  
+  }
+  
+}
+
+#fatalities
+for (group in unique(fatalities_disasters_data$sHDI_category)) {
+  for (distype in unique(fatalities_disasters_data$disaster_type)) {
+  
+  try(
+  model <- rq(normalized_deaths ~ year,
+              data = fatalities_disasters_data%>% filter(sHDI_category == group & disaster_type == distype)))
+    
+  model_summ <- summary(model,se = "boot")
+
+  model_df <- data.frame(val_1990 = model$coefficients[1] + model$coefficients[2] * 1990,
+            val_2020 = model$coefficients[1] + model$coefficients[2] * 2020,
+            sHDI_group = group,
+            disaster_type = distype,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "fatalities")
+  impact_coeffs_disaster = rbind(impact_coeffs_disaster, model_df)
+}
+}
+
+#damages
+for (group in unique(damages_disasters_data$sHDI_category)) {
+  for (distype in unique(damages_disasters_data$disaster_type)) {
+  
+  try(
+  model <- rq(normalized_total_damages ~ year, data = damages_disasters_data%>% filter(sHDI_category == group 
+                                                                                       & disaster_type == distype)))
+    
+  model_summ <- summary(model,se = "boot")
+
+  model_df <- data.frame(val_1990 = model$coefficients[1] + model$coefficients[2] * 1990,
+            val_2020 = model$coefficients[1] + model$coefficients[2] * 2020,
+            sHDI_group = group,
+            disaster_type = distype,
+            slope = model$coefficients[2],
+            pvalue = model_summ$coefficients[2,4],
+            npoints = length(model$residuals),
+            impact = "damages")
+  impact_coeffs_disaster = rbind(impact_coeffs_disaster, model_df)
+}
+}
+
+
+rownames(impact_coeffs_disaster) <- NULL
+
+# "affected"   "fatalities" "damages"
+
+xtable_output_rates <- impact_coeffs_disaster %>% 
+  mutate(change = round((val_2020/val_1990 - 1) * 100,2)) %>% 
+  mutate(sHDI_group = factor(sHDI_group, levels=c("all","Low sHDI","Medium sHDI","High sHDI","Very high sHDI"))) %>% 
+  mutate(disaster_type = factor(disaster_type,levels = c("Flood", "Storm", "Landslide", "Cold wave","Heat wave", "Wildfire", "Drought"))) %>% 
+  select(impact, sHDI_group, disaster_type,val_1990, val_2020,change, slope, pvalue, npoints) %>% 
+  filter(impact == "affected") %>%
+  arrange(sHDI_group) %>% 
+  xtable(display = c("f","f","f","f","f","f","f","e",rep("e",1),"d"))
+
+
+print(xtable_output_rates, include.rownames=FALSE)
+
+```
+
+#### Odds ratio between sHDI groups
+##### Tables S16, S17, S18
+```{r OR sHDI groups}
+
+or_between_shdi <- read_csv("../data/output/odds_sHDI_disasters_df.csv")
+
+#replace variable name in line 964 with one of the 3 impact variables
+#"Likelihood affected"         "Likelihood fatalities"       "Likelihood economic damages"
+
+or_between_shdi_xtable <- or_between_shdi %>% 
+  mutate(case = factor(case, levels=c("Low sHDI : Very high sHDI",
+                                      "Medium sHDI : Very high sHDI",
+                                      "High sHDI : Very high sHDI")),
+         impact = factor(impact, levels=c("Likelihood affected","Likelihood fatalities","Likelihood economic damages"))) %>% 
+  mutate(disaster = factor(disaster_type,levels = c("All types","Flood", "Storm", "Landslide", "Cold wave",
+                                                          "Heat wave", "Wildfire", "Drought"))) %>% 
+  select(c(case, disaster_type, impact, odds_ratio, ci_low, ci_high,pvalue,npoints)) %>% 
+  filter(impact == "Likelihood economic damages") %>% 
+  relocate(impact) %>% 
+  relocate(disaster_type, .after = impact) %>% 
+  xtable(display = c("f","f","f","f","f","f","f",rep("e",1),"d"))
+
+print(or_between_shdi_xtable, include.rownames=FALSE)
+
+```
+
+#### Odds ratio between sHDI groups and deviation
+##### Tables S19, S20, S21
+```{r OR sHDI groups deviation}
+
+or_between_shdi_deviation <- read_csv("../data/output/odds_disasters_inequalities_df.csv")
+
+#replace variable name in line 997 with one of the 3 impact variables
+#"Likelihood affected"         "Likelihood fatalities"       "Likelihood economic damages"
+
+or_between_shdi_deviation <- or_between_shdi_deviation %>% filter(disaster_type != "Landslide")
+
+or_between_shdi_deviation_xtable <- or_between_shdi_deviation %>% 
+  mutate(case = factor(case, levels=c("Low sHDI - worse-off : Very high sHDI",
+                                      "Low sHDI - nat-average : Very high sHDI",
+                                      "Low sHDI - better-off : Very high sHDI",
+                                      "Medium sHDI - worse-off : Very high sHDI",
+                                      "Medium sHDI - nat-average : Very high sHDI",
+                                      "Medium sHDI - better-off : Very high sHDI",
+                                      "High sHDI - worse-off : Very high sHDI",
+                                      "High sHDI - nat-average : Very high sHDI",
+                                      "High sHDI - better-off : Very high sHDI")),
+         impact = factor(impact, levels=c("Likelihood affected", "Likelihood fatalities","Likelihood economic damages"))) %>%
+  mutate(disaster = factor(disaster_type,levels = c("All types","Flood", "Storm", "Landslide", "Cold wave",
+                                                           "Heat wave", "Wildfire", "Drought"))) %>% 
+  select(c(case, disaster_type, impact, odds_ratio, ci_low, ci_high,pvalue,npoints)) %>% 
+  filter(impact == "Likelihood economic damages") %>% 
+  relocate(impact) %>% 
+  relocate(disaster_type, .after = impact) %>% 
+  xtable(display = c("f","f","f","f","f","f","f",rep("e",1),"d"))
+
+print(or_between_shdi_deviation_xtable, include.rownames=FALSE)
+
+```
+
+
+## End of document
+

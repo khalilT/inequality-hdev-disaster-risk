@@ -1,0 +1,28 @@
+{
+    "id": "83E79634",
+    "path": "~/disaster_impacts/analysis/4_supplementary_tables_S1_S21.Rmd",
+    "project_path": "analysis/4_supplementary_tables_S1_S21.Rmd",
+    "type": "r_markdown",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1774819662461.0,
+    "source_on_save": false,
+    "relative_order": 13,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "docOutlineVisible": "1",
+        "cursorPosition": "107,17",
+        "scrollLine": "0",
+        "last_setup_crc32": ""
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1770670281,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1774819720593,
+    "read_only": false,
+    "read_only_alternatives": []
+}
